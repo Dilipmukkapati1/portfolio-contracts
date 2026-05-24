@@ -1,4 +1,5 @@
 export * from "./enums.js";
+export * from "./investmentCategory.js";
 export * from "./queue.js";
 export * from "./taxAggregation.js";
 export * from "./dtos/household.js";

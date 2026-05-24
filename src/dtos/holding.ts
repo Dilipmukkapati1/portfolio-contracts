@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InvestmentCategorySchema } from "../investmentCategory.js";
 
 export const HoldingSchema = z.object({
   id: z.string(),
@@ -12,6 +13,7 @@ export const HoldingSchema = z.object({
   marketValue: z.number().optional(),
   costBasis: z.number().optional(),
   currency: z.string().default("USD"),
+  category: InvestmentCategorySchema.optional(),
   assetClass: z.string().optional(),
   lastSyncedAt: z.string().datetime().optional(),
   createdAt: z.string().datetime(),
