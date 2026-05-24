@@ -50,6 +50,15 @@ export const TransactionCategorySchema = z.enum([
 ]);
 export type TransactionCategory = z.infer<typeof TransactionCategorySchema>;
 
+export const TransactionCategorySourceSchema = z.enum([
+  "auto",
+  "user",
+  "provider",
+]);
+export type TransactionCategorySource = z.infer<
+  typeof TransactionCategorySourceSchema
+>;
+
 export const SyncStatusSchema = z.enum([
   "idle",
   "syncing",
