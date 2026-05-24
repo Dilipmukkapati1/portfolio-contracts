@@ -38,12 +38,32 @@ export type RunBatchProjectionMessage = z.infer<
   typeof RunBatchProjectionMessageSchema
 >;
 
+export const RecomputeTaxProfileMessageSchema = z.object({
+  type: z.literal("recompute.taxProfile"),
+  householdId: z.string(),
+  taxYear: z.number().int().optional(),
+});
+export type RecomputeTaxProfileMessage = z.infer<
+  typeof RecomputeTaxProfileMessageSchema
+>;
+
+export const RollupMonthlySpendMessageSchema = z.object({
+  type: z.literal("rollup.monthlySpend"),
+  householdId: z.string(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+});
+export type RollupMonthlySpendMessage = z.infer<
+  typeof RollupMonthlySpendMessageSchema
+>;
+
 export const QueueMessageSchema = z.discriminatedUnion("type", [
   SyncSimplefinMessageSchema,
   SyncSnaptradeMessageSchema,
   CategorizeTransactionsMessageSchema,
   RecomputeNetworthMessageSchema,
   RunBatchProjectionMessageSchema,
+  RecomputeTaxProfileMessageSchema,
+  RollupMonthlySpendMessageSchema,
 ]);
 export type QueueMessage = z.infer<typeof QueueMessageSchema>;
 

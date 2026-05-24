@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AccountSourceSchema } from "../enums.js";
+import { AccountSourceSchema, AccountTaxTreatmentSchema } from "../enums.js";
 
 export const AccountSchema = z.object({
   id: z.string(),
@@ -10,6 +10,8 @@ export const AccountSchema = z.object({
   displayName: z.string(),
   institutionName: z.string().optional(),
   accountType: z.string().optional(),
+  taxTreatment: AccountTaxTreatmentSchema.optional(),
+  ownerMemberId: z.string().optional(),
   currency: z.string().default("USD"),
   balance: z.number().optional(),
   isActive: z.boolean().default(true),

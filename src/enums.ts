@@ -57,3 +57,62 @@ export const SyncStatusSchema = z.enum([
   "error",
 ]);
 export type SyncStatus = z.infer<typeof SyncStatusSchema>;
+
+export const MemberRelationshipSchema = z.enum([
+  "self",
+  "spouse",
+  "dependent",
+  "other",
+]);
+export type MemberRelationship = z.infer<typeof MemberRelationshipSchema>;
+
+export const IncomeSourceTypeSchema = z.enum([
+  "wages",
+  "self_employment",
+  "interest",
+  "dividends",
+  "capital_gains_short",
+  "capital_gains_long",
+  "other",
+]);
+export type IncomeSourceType = z.infer<typeof IncomeSourceTypeSchema>;
+
+export const ContributionTypeSchema = z.enum([
+  "401k",
+  "403b",
+  "traditional_ira",
+  "roth_ira",
+  "sep_ira",
+  "solo_401k",
+  "simple_ira",
+  "hsa",
+  "fsa_health",
+  "fsa_dependent_care",
+  "529",
+  "employer_match",
+]);
+export type ContributionType = z.infer<typeof ContributionTypeSchema>;
+
+export const DataProvenanceSchema = z.enum([
+  "manual",
+  "derived",
+  "integration",
+  "member_aggregate",
+]);
+export type DataProvenance = z.infer<typeof DataProvenanceSchema>;
+
+export const AccountTaxTreatmentSchema = z.enum([
+  "taxable_brokerage",
+  "traditional_ira",
+  "roth_ira",
+  "401k",
+  "403b",
+  "hsa",
+  "529",
+  "checking",
+  "savings",
+  "credit",
+  "mortgage",
+  "loan",
+]);
+export type AccountTaxTreatment = z.infer<typeof AccountTaxTreatmentSchema>;
