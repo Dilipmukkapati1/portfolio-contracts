@@ -46,8 +46,18 @@ export const TransactionFilterSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   limit: z.number().int().positive().max(500).default(100),
+  cursor: z.string().optional(),
 });
 export type TransactionFilter = z.infer<typeof TransactionFilterSchema>;
+
+export const TransactionListResponseSchema = z.object({
+  transactions: z.array(TransactionSchema),
+  hasMore: z.boolean(),
+  nextCursor: z.string().optional(),
+});
+export type TransactionListResponse = z.infer<
+  typeof TransactionListResponseSchema
+>;
 
 export const TransactionSummaryRequestSchema = z.object({
   startDate: z.string(),
