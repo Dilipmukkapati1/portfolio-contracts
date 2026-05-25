@@ -12,6 +12,7 @@ export const AccountSchema = z.object({
   accountType: z.string().optional(),
   taxTreatment: AccountTaxTreatmentSchema.optional(),
   ownerMemberId: z.string().optional(),
+  connectionLabel: z.string().optional(),
   currency: z.string().default("USD"),
   balance: z.number().optional(),
   isActive: z.boolean().default(true),
