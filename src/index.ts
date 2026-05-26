@@ -10,6 +10,7 @@ export * from "./dtos/transaction.js";
 export * from "./dtos/holding.js";
 export * from "./dtos/integration.js";
 export * from "./dtos/tax.js";
+export * from "./dtos/privacy.js";
 export * from "./dtos/scenario.js";
 export * from "./dtos/projectionRun.js";
 export * from "./dtos/taxLot.js";

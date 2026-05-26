@@ -7,6 +7,11 @@ import {
   parseQueueMessage,
   serializeQueueMessage,
   TaxYearInputSchema,
+  HoldingListViewResponseSchema,
+  PrivacyUnlockRequestSchema,
+  PrivacyUnlockResponseSchema,
+  TransactionSummaryViewResponseSchema,
+  DashboardAnalyticsResponseSchema,
 } from "./index.js";
 
 describe("@portfolio/contracts", () => {
@@ -75,5 +80,68 @@ describe("@portfolio/contracts", () => {
       wages: 85000,
     });
     expect(input.wages).toBe(85000);
+  });
+
+  it("parses locked privacy response envelopes without dollar fields", () => {
+    const now = new Date().toISOString();
+    const lockedHoldings = HoldingListViewResponseSchema.parse({
+      privacyMode: "locked",
+      valuesUnlocked: false,
+      holdings: [
+        {
+          id: "h1",
+          holdingId: "h1",
+          accountId: "a1",
+          symbol: "VTI",
+          description: "Vanguard Total Stock Market ETF",
+          category: "etf",
+          portfolioPercent: 72.5,
+          categoryPercent: 100,
+          accountPercent: 80,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+
+    expect(lockedHoldings.valuesUnlocked).toBe(false);
+    expect("marketValue" in lockedHoldings.holdings[0]!).toBe(false);
+    expect("quantity" in lockedHoldings.holdings[0]!).toBe(false);
+
+    expect(
+      TransactionSummaryViewResponseSchema.parse({
+        privacyMode: "locked",
+        valuesUnlocked: false,
+        spendByCategoryPercent: { food: 42.5 },
+        transactionCount: 7,
+      }).valuesUnlocked
+    ).toBe(false);
+  });
+
+  it("parses privacy unlock and dashboard analytics contracts", () => {
+    expect(
+      PrivacyUnlockRequestSchema.parse({ password: "portfolio" }).password
+    ).toBe("portfolio");
+    expect(
+      PrivacyUnlockResponseSchema.parse({
+        privacyToken: "token",
+        expiresAt: new Date().toISOString(),
+      }).privacyToken
+    ).toBe("token");
+
+    const analytics = DashboardAnalyticsResponseSchema.parse({
+      privacyMode: "locked",
+      valuesUnlocked: false,
+      allocation: [{ id: "etf", label: "ETF", percent: 80 }],
+      spendByCategoryPercent: { food: 40, housing: 60 },
+      transactionCount: 12,
+      accountSections: [{ id: "investment", label: "Investments", percent: 90 }],
+      freedomScore: {
+        privacyMode: "locked",
+        valuesUnlocked: false,
+        score: 35,
+      },
+    });
+    expect(analytics.privacyMode).toBe("locked");
   });
 });
