@@ -178,6 +178,7 @@ export const DashboardAnalyticsLockedResponseSchema = z.object({
   spendByCategoryPercent: z.record(z.string(), z.number()),
   transactionCount: z.number().int().nonnegative(),
   accountSections: z.array(PercentAllocationSliceSchema),
+  uninvestedCashPercent: z.number(),
   freedomScore: FreedomScoreLockedResponseSchema,
 });
 export type DashboardAnalyticsLockedResponse = z.infer<

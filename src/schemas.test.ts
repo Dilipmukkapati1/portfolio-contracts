@@ -136,6 +136,7 @@ describe("@portfolio/contracts", () => {
       spendByCategoryPercent: { food: 40, housing: 60 },
       transactionCount: 12,
       accountSections: [{ id: "investment", label: "Investments", percent: 90 }],
+      uninvestedCashPercent: 12.5,
       freedomScore: {
         privacyMode: "locked",
         valuesUnlocked: false,
