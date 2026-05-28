@@ -15,3 +15,4 @@ export * from "./dtos/scenario.js";
 export * from "./dtos/projectionRun.js";
 export * from "./dtos/taxLot.js";
 export * from "./dtos/netWorthSnapshot.js";
+export * from "./dtos/architect.js";
