@@ -60,7 +60,10 @@ export type ArchitectSectorSlice = z.infer<typeof ArchitectSectorSliceSchema>;
 export const ArchitectDashboardSchema = z.object({
   title: z.string().default("Portfolio Architect"),
   totalCapital: z.number().optional(),
+  /** Target allocation (editable plan). */
   strategy: ArchitectStrategyAllocationSchema,
+  /** Current allocation from holdings / execution. */
+  executedStrategy: ArchitectStrategyAllocationSchema,
   strategyCenterLabel: z.string(),
   executionAssets: z.array(ArchitectExecutionAssetSchema),
   sectors: z.array(ArchitectSectorSliceSchema),
@@ -76,11 +79,25 @@ export const ArchitectDashboardSchema = z.object({
 });
 export type ArchitectDashboard = z.infer<typeof ArchitectDashboardSchema>;
 
-export const UpdateArchitectPlanRequestSchema = z.object({
-  totalCapital: z.number().positive().optional(),
-  strategy: ArchitectStrategyAllocationSchema.optional(),
-  targets: z.array(ArchitectTargetSchema).optional(),
-});
+export const UpdateArchitectPlanRequestSchema = z
+  .object({
+    totalCapital: z.number().positive().optional(),
+    strategy: ArchitectStrategyAllocationSchema.optional(),
+    targets: z.array(ArchitectTargetSchema).optional(),
+    /** Append or replace a single target (merged with existing targets). */
+    addTarget: ArchitectTargetSchema.optional(),
+  })
+  .refine(
+    (body) => {
+      if (!body.strategy) return true;
+      const sum =
+        body.strategy.equitiesPercent +
+        body.strategy.bondsPercent +
+        body.strategy.cashPercent;
+      return Math.abs(sum - 100) <= 0.05;
+    },
+    { message: "Strategy allocation must total 100%" }
+  );
 export type UpdateArchitectPlanRequest = z.infer<
   typeof UpdateArchitectPlanRequestSchema
 >;
