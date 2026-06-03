@@ -72,6 +72,8 @@ export const TransactionSummaryResponseSchema = z.object({
   totalCredits: z.number(),
   totalSpend: z.number(),
   spendByCategory: z.record(z.string(), z.number()),
+  spendByAccount: z.record(z.string(), z.number()).default({}),
+  spendByCategoryPercent: z.record(z.string(), z.number()).optional(),
   transactionCount: z.number().int().nonnegative(),
 });
 export type TransactionSummaryResponse = z.infer<
