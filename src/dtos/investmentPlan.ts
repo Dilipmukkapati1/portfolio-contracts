@@ -10,6 +10,20 @@ export type ReturnPeriod = z.infer<typeof ReturnPeriodSchema>;
 export const FeeKindSchema = z.enum(["expense_ratio", "commission", "none"]);
 export type FeeKind = z.infer<typeof FeeKindSchema>;
 
+/** Security type from market data providers (search / profile). */
+export const InstrumentAssetTypeSchema = z.enum([
+  "stock",
+  "etf",
+  "mutual_fund",
+  "bond",
+  "fund",
+  "other",
+]);
+export type InstrumentAssetType = z.infer<typeof InstrumentAssetTypeSchema>;
+
+export const MarketDataSourceSchema = z.enum(["fmp", "stub", "estimated"]);
+export type MarketDataSource = z.infer<typeof MarketDataSourceSchema>;
+
 export const PlannedInstrumentSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -75,6 +89,20 @@ export const FundProfileSchema = z.object({
   inceptionLabel: z.string(),
   expenseRatio: z.number(),
   feeKind: FeeKindSchema,
+  /** Display name from market data (when available). */
+  name: z.string().optional(),
+  /** Latest trade price in quote currency. */
+  price: z.number().optional(),
+  /** 1-day price change as a decimal (e.g. 0.012 = +1.2%). */
+  priceChange1d: z.number().optional(),
+  marketCap: z.number().optional(),
+  volume: z.number().optional(),
+  exchange: z.string().optional(),
+  currency: z.string().optional(),
+  assetType: InstrumentAssetTypeSchema.optional(),
+  dataSource: MarketDataSourceSchema.optional(),
+  /** ISO timestamp when quote/profile fields were fetched. */
+  asOf: z.string().datetime().optional(),
 });
 export type FundProfile = z.infer<typeof FundProfileSchema>;
 
@@ -98,6 +126,8 @@ export type ProjectionResponse = z.infer<typeof ProjectionResponseSchema>;
 export const InstrumentSearchResultSchema = z.object({
   ticker: z.string(),
   name: z.string(),
+  exchange: z.string().optional(),
+  assetType: InstrumentAssetTypeSchema.optional(),
 });
 export type InstrumentSearchResult = z.infer<typeof InstrumentSearchResultSchema>;
 

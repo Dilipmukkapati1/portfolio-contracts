@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
 
+# Dev deploy: .github/workflows/deploy-dev.yml (runs on push to main)
+
 jobs:
   build:
     runs-on: ubuntu-latest
