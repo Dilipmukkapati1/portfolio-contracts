@@ -1,12 +1,12 @@
-name: Deploy dev
+name: Deploy prod
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-dev-contracts
+  group: deploy-prod-contracts
   cancel-in-progress: true
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
   trigger-downstream:
     needs: verify
     runs-on: ubuntu-latest
-    environment: dev
+    environment: prod
     strategy:
       fail-fast: false
       matrix:
@@ -39,5 +39,5 @@ jobs:
         with:
           token: ${{ secrets.REPO_DISPATCH_PAT }}
           repository: ${{ matrix.repo }}
-          event-type: deploy-dev
+          event-type: deploy-prod
           client-payload: '{"ref":"${{ github.ref }}"}'
