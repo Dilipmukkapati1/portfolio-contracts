@@ -78,6 +78,27 @@ export const AllocationClassRollupSchema = z.object({
 });
 export type AllocationClassRollup = z.infer<typeof AllocationClassRollupSchema>;
 
+export const InstrumentExecutionRollupSchema = z.object({
+  instrumentId: z.string().min(1),
+  ticker: z.string().min(1),
+  planDollars: z.number(),
+  planPercent: z.number(),
+  actualDollars: z.number().nullable(),
+  outlookValue: z.number().nullable(),
+});
+export type InstrumentExecutionRollup = z.infer<
+  typeof InstrumentExecutionRollupSchema
+>;
+
+export const PlanExecutionOutlookSchema = z.object({
+  overallOutlook: z.number(),
+  instrumentCount: z.number().int().min(0),
+  onTrackCount: z.number().int().min(0),
+  plannedTotalDollars: z.number(),
+  executedDollars: z.number(),
+});
+export type PlanExecutionOutlook = z.infer<typeof PlanExecutionOutlookSchema>;
+
 export const FundProfileSchema = z.object({
   ticker: z.string(),
   return1y: z.number(),

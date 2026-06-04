@@ -6,8 +6,8 @@ import type {
 } from "../dtos/investmentPlan.js";
 import { instrumentDollars } from "./rollup.js";
 
-export const PROJECTION_MAX_YEARS = 50;
-export const PROJECTION_HORIZONS = [10, 20, 30, 50] as const;
+export const PROJECTION_MAX_YEARS = 40;
+export const PROJECTION_HORIZONS = [10, 20, 30, 40] as const;
 export const PROJECTION_YEAR_MARKS = Array.from(
   { length: PROJECTION_MAX_YEARS / 5 + 1 },
   (_, i) => i * 5

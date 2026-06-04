@@ -69,6 +69,7 @@ describe("computePortfolioProjection", () => {
     );
     expect(result!.totalPrincipal).toBe(100_000);
     expect(result!.instrumentCount).toBe(2);
-    expect(result!.values[10]).toBeGreaterThan(100_000);
+    const at10Years = result!.milestones.find((m) => m.years === 10);
+    expect(at10Years?.future).toBeGreaterThan(100_000);
   });
 });

@@ -22,4 +22,5 @@ export * from "./expense-planner/mappingMatcher.js";
 export * from "./expense-planner/analytics.js";
 export * from "./investment-plan/assetClass.js";
 export * from "./investment-plan/rollup.js";
+export * from "./investment-plan/execution.js";
 export * from "./investment-plan/projections.js";
