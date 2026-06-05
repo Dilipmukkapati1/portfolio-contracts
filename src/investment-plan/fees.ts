@@ -1,5 +1,42 @@
-import type { FundProfile, PlannedInstrument } from "../dtos/investmentPlan.js";
+import type {
+  FundProfile,
+  PlannedInstrument,
+} from "../dtos/investmentPlan.js";
 import { instrumentDollars, instrumentPercent } from "./rollup.js";
+
+export type InstrumentFeeFields = Pick<FundProfile, "expenseRatio" | "feeKind">;
+
+export function hasPersistedFeeSnapshot(
+  item: Pick<PlannedInstrument, "feeKind">
+): boolean {
+  return item.feeKind !== undefined;
+}
+
+export function feeFieldsForPlannedInstrument(
+  item: PlannedInstrument
+): InstrumentFeeFields {
+  if (item.feeKind !== undefined) {
+    return {
+      expenseRatio: item.expenseRatio ?? 0,
+      feeKind: item.feeKind,
+    };
+  }
+  return { expenseRatio: 0, feeKind: "none" };
+}
+
+export function feeSnapshotFromProfile(
+  profile: Pick<FundProfile, "expenseRatio" | "feeKind" | "dataSource" | "asOf">
+): Pick<
+  PlannedInstrument,
+  "expenseRatio" | "feeKind" | "profileAsOf" | "profileDataSource"
+> {
+  return {
+    expenseRatio: profile.expenseRatio,
+    feeKind: profile.feeKind,
+    ...(profile.asOf ? { profileAsOf: profile.asOf } : {}),
+    ...(profile.dataSource ? { profileDataSource: profile.dataSource } : {}),
+  };
+}
 
 export type AggregatedPlanFees = {
   /** Portfolio expense ratio: total annual fees ÷ total net worth (0–1). */

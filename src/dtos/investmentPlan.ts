@@ -32,6 +32,11 @@ export const PlannedInstrumentSchema = z.object({
   unit: DisplayUnitSchema,
   value: z.number().min(0),
   sortOrder: z.number().int().min(0).default(0),
+  /** Snapshot expense ratio as decimal (e.g. 0.0003 = 0.03%), set when plan is saved. */
+  expenseRatio: z.number().min(0).optional(),
+  feeKind: FeeKindSchema.optional(),
+  profileAsOf: z.string().datetime().optional(),
+  profileDataSource: MarketDataSourceSchema.optional(),
 });
 export type PlannedInstrument = z.infer<typeof PlannedInstrumentSchema>;
 
@@ -45,7 +50,13 @@ export type InvestmentPlan = z.infer<typeof InvestmentPlanSchema>;
 
 export const UpsertInvestmentPlanRequestSchema = z.object({
   instruments: z.array(
-    PlannedInstrumentSchema.omit({ ticker: true }).extend({
+    PlannedInstrumentSchema.omit({
+      ticker: true,
+      expenseRatio: true,
+      feeKind: true,
+      profileAsOf: true,
+      profileDataSource: true,
+    }).extend({
       sortOrder: z.number().int().min(0).optional(),
     })
   ),

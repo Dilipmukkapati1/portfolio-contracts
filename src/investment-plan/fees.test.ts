@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PlannedInstrument } from "../dtos/investmentPlan.js";
-import { computeAggregatedPlanFees } from "./fees.js";
+import {
+  computeAggregatedPlanFees,
+  feeFieldsForPlannedInstrument,
+  feeSnapshotFromProfile,
+  hasPersistedFeeSnapshot,
+} from "./fees.js";
 
 const baseInstrument: PlannedInstrument = {
   id: "a",
@@ -73,6 +78,18 @@ describe("computeAggregatedPlanFees", () => {
     expect(result!.feeBearingPercent).toBe(50);
   });
 
+  it("weights expense ratios by each fund's share of net worth, not fee-bearing allocation only", () => {
+    const result = computeAggregatedPlanFees({
+      instruments: [{ ...baseInstrument, id: "a", value: 50 }],
+      netWorth: 200_000,
+      profileForInstrument: () => ({ expenseRatio: 0.001, feeKind: "expense_ratio" }),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.weightedExpenseRatio).toBeCloseTo(0.0005, 6);
+    expect(result!.weightedExpenseRatio).not.toBeCloseTo(0.001, 6);
+  });
+
   it("lowers portfolio ratio when only part of net worth is in fee-bearing funds", () => {
     const instruments: PlannedInstrument[] = [
       { ...baseInstrument, id: "a", value: 30 },
@@ -87,5 +104,38 @@ describe("computeAggregatedPlanFees", () => {
     expect(result).not.toBeNull();
     expect(result!.annualExpenseDollars).toBeCloseTo(300, 2);
     expect(result!.weightedExpenseRatio).toBeCloseTo(300 / 1_000_000, 6);
+  });
+});
+
+describe("planned instrument fee snapshots", () => {
+  it("detects persisted fee fields", () => {
+    expect(hasPersistedFeeSnapshot({ feeKind: "expense_ratio" })).toBe(true);
+    expect(hasPersistedFeeSnapshot({})).toBe(false);
+  });
+
+  it("reads persisted fee fields from planned instruments", () => {
+    expect(
+      feeFieldsForPlannedInstrument({
+        ...baseInstrument,
+        expenseRatio: 0.0003,
+        feeKind: "expense_ratio",
+      })
+    ).toEqual({ expenseRatio: 0.0003, feeKind: "expense_ratio" });
+  });
+
+  it("maps fund profiles into planned instrument snapshots", () => {
+    expect(
+      feeSnapshotFromProfile({
+        expenseRatio: 0.0007,
+        feeKind: "expense_ratio",
+        dataSource: "fmp",
+        asOf: "2026-06-04T12:00:00.000Z",
+      })
+    ).toEqual({
+      expenseRatio: 0.0007,
+      feeKind: "expense_ratio",
+      profileDataSource: "fmp",
+      profileAsOf: "2026-06-04T12:00:00.000Z",
+    });
   });
 });
