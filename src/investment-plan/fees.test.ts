@@ -23,7 +23,7 @@ describe("computeAggregatedPlanFees", () => {
     ).toBeNull();
   });
 
-  it("weights expense ratio by % of net worth", () => {
+  it("sets expense ratio to total annual fees divided by net worth", () => {
     const instruments: PlannedInstrument[] = [
       { ...baseInstrument, id: "a", value: 60, name: "VTI" },
       {
@@ -51,7 +51,7 @@ describe("computeAggregatedPlanFees", () => {
     expect(result!.feeBearingDollars).toBe(1_000_000);
   });
 
-  it("excludes commission and zero-ratio holdings", () => {
+  it("excludes commission holdings from fees but divides ratio by full net worth", () => {
     const instruments: PlannedInstrument[] = [
       { ...baseInstrument, id: "a", value: 50 },
       { ...baseInstrument, id: "b", name: "AAPL", value: 50, assetClass: "stocks" },
@@ -67,9 +67,25 @@ describe("computeAggregatedPlanFees", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.weightedExpenseRatio).toBeCloseTo(0.001, 6);
     expect(result!.annualExpenseDollars).toBeCloseTo(100, 2);
+    expect(result!.weightedExpenseRatio).toBeCloseTo(100 / 200_000, 6);
     expect(result!.instrumentCount).toBe(1);
     expect(result!.feeBearingPercent).toBe(50);
+  });
+
+  it("lowers portfolio ratio when only part of net worth is in fee-bearing funds", () => {
+    const instruments: PlannedInstrument[] = [
+      { ...baseInstrument, id: "a", value: 30 },
+    ];
+
+    const result = computeAggregatedPlanFees({
+      instruments,
+      netWorth: 1_000_000,
+      profileForInstrument: () => ({ expenseRatio: 0.001, feeKind: "expense_ratio" }),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.annualExpenseDollars).toBeCloseTo(300, 2);
+    expect(result!.weightedExpenseRatio).toBeCloseTo(300 / 1_000_000, 6);
   });
 });

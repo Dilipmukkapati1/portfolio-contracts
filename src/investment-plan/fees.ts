@@ -2,9 +2,9 @@ import type { FundProfile, PlannedInstrument } from "../dtos/investmentPlan.js";
 import { instrumentDollars, instrumentPercent } from "./rollup.js";
 
 export type AggregatedPlanFees = {
-  /** Weighted average expense ratio across fee-bearing planned holdings (0–1). */
+  /** Portfolio expense ratio: total annual fees ÷ total net worth (0–1). */
   weightedExpenseRatio: number;
-  /** Sum of annual expense dollars (principal × expense ratio per holding). */
+  /** Sum of annual expense dollars (allocation × expense ratio per fund). */
   annualExpenseDollars: number;
   /** Planned principal included in the fee rollup (expense-ratio funds only). */
   feeBearingDollars: number;
@@ -15,8 +15,9 @@ export type AggregatedPlanFees = {
 
 /**
  * Portfolio-level expense ratio and annual cost from planned allocations.
- * Weighting uses each holding's % of net worth (or dollar allocation).
- * Holdings without an expense ratio (commission / none) are excluded.
+ * Per fund: annual expense = planned allocation ($) × expense ratio.
+ * Portfolio expense ratio = sum(annual expenses) ÷ total net worth.
+ * Holdings without an expense ratio (commission / none) contribute $0.
  */
 export function computeAggregatedPlanFees(input: {
   instruments: PlannedInstrument[];
@@ -31,7 +32,6 @@ export function computeAggregatedPlanFees(input: {
 
   let feeBearingDollars = 0;
   let feeBearingPercent = 0;
-  let weightedRatioNumerator = 0;
   let annualExpenseDollars = 0;
   let instrumentCount = 0;
 
@@ -48,14 +48,13 @@ export function computeAggregatedPlanFees(input: {
     instrumentCount += 1;
     feeBearingDollars += dollars;
     feeBearingPercent += percent;
-    weightedRatioNumerator += percent * profile.expenseRatio;
     annualExpenseDollars += dollars * profile.expenseRatio;
   }
 
-  if (instrumentCount === 0 || feeBearingPercent <= 0) return null;
+  if (instrumentCount === 0) return null;
 
   return {
-    weightedExpenseRatio: weightedRatioNumerator / feeBearingPercent,
+    weightedExpenseRatio: annualExpenseDollars / netWorth,
     annualExpenseDollars,
     feeBearingDollars,
     feeBearingPercent,
