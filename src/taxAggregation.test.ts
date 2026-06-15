@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   buildTaxProfileFromMembers,
   countDependents,
+  prepareTaxInputForEstimate,
+  sumDeductibleMemberContributions,
   sumMemberContributions,
   sumMemberIncome,
 } from "./taxAggregation.js";
@@ -60,24 +62,6 @@ describe("taxAggregation", () => {
     expect(countDependents(members)).toBe(1);
   });
 
-  it("maps pre-tax and HSA contributions", () => {
-    const members = [
-      member({
-        id: "m1",
-        name: "Alex",
-        relationship: "self",
-        contributions: [
-          { id: "c1", type: "401k", amount: 10000 },
-          { id: "c2", type: "hsa", amount: 3000 },
-          { id: "c3", type: "roth_ira", amount: 7000 },
-        ],
-      }),
-    ];
-    const totals = sumMemberContributions(members);
-    expect(totals.retirementContributions).toBe(10000);
-    expect(totals.hsaContributions).toBe(3000);
-  });
-
   it("builds tax profile from members", () => {
     const members = [
       member({
@@ -104,5 +88,86 @@ describe("taxAggregation", () => {
     expect(profile.inputs.retirementContributions).toBe(5000);
     expect(profile.memberIds).toEqual(["m1", "m2"]);
     expect(profile.id).toBe("hh-1:2025");
+  });
+
+  it("maps pre-tax and HSA contributions", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [
+          { id: "c1", type: "401k", amount: 10000 },
+          { id: "c2", type: "hsa", amount: 3000 },
+          { id: "c3", type: "roth_ira", amount: 7000 },
+        ],
+      }),
+    ];
+    const totals = sumMemberContributions(members);
+    expect(totals.retirementContributions).toBe(10000);
+    expect(totals.hsaContributions).toBe(3000);
+  });
+
+  it("caps deductible retirement contributions per member at plan limit", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [{ id: "c1", type: "401k", amount: 24500 }],
+      }),
+      member({
+        id: "m2",
+        name: "Jordan",
+        relationship: "spouse",
+        contributions: [{ id: "c2", type: "401k", amount: 24500 }],
+      }),
+    ];
+    const deductible = sumDeductibleMemberContributions(members, {
+      retirement401kLimit: 24500,
+    });
+    expect(deductible.retirementContributions).toBe(49000);
+  });
+
+  it("caps deductible retirement contributions per member at 2025 plan limit", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [{ id: "c1", type: "401k", amount: 24500 }],
+      }),
+      member({
+        id: "m2",
+        name: "Jordan",
+        relationship: "spouse",
+        contributions: [{ id: "c2", type: "401k", amount: 24500 }],
+      }),
+    ];
+    const deductible = sumDeductibleMemberContributions(members, {
+      retirement401kLimit: 23500,
+    });
+    expect(deductible.retirementContributions).toBe(47000);
+  });
+
+  it("prepareTaxInputForEstimate folds deferrals into adjustments", () => {
+    const prepared = prepareTaxInputForEstimate({
+      taxYear: 2025,
+      filingStatus: "single",
+      wages: 395000,
+      selfEmploymentIncome: 0,
+      interestIncome: 0,
+      dividendIncome: 0,
+      capitalGainsShort: 0,
+      capitalGainsLong: 0,
+      otherIncome: 0,
+      adjustments: 0,
+      dependents: 0,
+      retirementContributions: 47000,
+      hsaContributions: 0,
+    });
+    expect(prepared.adjustments).toBe(47000);
+    expect(prepared.retirementContributions).toBe(0);
+    expect(prepared.hsaContributions).toBe(0);
   });
 });

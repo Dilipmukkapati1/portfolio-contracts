@@ -78,6 +78,63 @@ export function sumMemberContributions(members: Member[]): {
   return { retirementContributions, hsaContributions };
 }
 
+/** Pre-tax deferrals deductible on the return, capped per member at plan limits. */
+export function sumDeductibleMemberContributions(
+  members: Member[],
+  rules: TaxRuleLimits = {}
+): {
+  retirementContributions: number;
+  hsaContributions: number;
+} {
+  const retirementLimit = rules.retirement401kLimit ?? 23500;
+  const hsaLimitPerMember = rules.hsaSingleLimit ?? 4300;
+  const hsaFamilyLimit = rules.hsaFamilyLimit ?? 8550;
+
+  let retirementContributions = 0;
+  let hsaContributions = 0;
+  let activeMemberCount = 0;
+
+  for (const member of members) {
+    if (!member.isActive) continue;
+    activeMemberCount += 1;
+    let retirement = 0;
+    let hsa = 0;
+    for (const line of member.contributions) {
+      if (RETIREMENT_CONTRIBUTION_TYPES.includes(line.type)) {
+        retirement += line.amount;
+      }
+      if (line.type === "hsa") {
+        hsa += line.amount;
+      }
+    }
+    retirementContributions += Math.min(retirement, retirementLimit);
+    hsaContributions += Math.min(hsa, hsaLimitPerMember);
+  }
+
+  if (activeMemberCount > 1) {
+    hsaContributions = Math.min(hsaContributions, hsaFamilyLimit);
+  }
+
+  return { retirementContributions, hsaContributions };
+}
+
+/**
+ * Normalize tax inputs before calling the estimator so pre-tax deferrals
+ * always reduce AGI (works with tax-engine builds that only read `adjustments`).
+ */
+export function prepareTaxInputForEstimate(input: TaxYearInput): TaxYearInput {
+  const deferrals = input.retirementContributions + input.hsaContributions;
+  if (deferrals <= 0) {
+    return input;
+  }
+  return {
+    ...input,
+    adjustments: input.adjustments + deferrals,
+    retirementContributions: 0,
+    hsaContributions: 0,
+  };
+}
+
 export function countDependents(members: Member[]): number {
   return members.filter((m) => m.isActive && m.relationship === "dependent").length;
 }
@@ -148,7 +205,7 @@ export function buildTaxProfileFromMembers(
   const activeMembers = members.filter((m) => m.isActive);
   const dependentCount = countDependents(members);
   const incomeTotals = sumMemberIncome(members);
-  const contributionTotals = sumMemberContributions(members);
+  const contributionTotals = sumDeductibleMemberContributions(members, rules);
 
   const filingStatus =
     options.filingStatus ??
