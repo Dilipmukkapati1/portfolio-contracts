@@ -17,6 +17,7 @@ export * from "./dtos/taxLot.js";
 export * from "./dtos/netWorthSnapshot.js";
 export * from "./dtos/investmentPlan.js";
 export * from "./dtos/expensePlan.js";
+export * from "./dtos/advisor.js";
 export * from "./expense-planner/defaults.js";
 export * from "./expense-planner/mappingMatcher.js";
 export * from "./expense-planner/analytics.js";
