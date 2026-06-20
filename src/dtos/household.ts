@@ -23,6 +23,8 @@ export const HouseholdSettingsSchema = z.object({
   currency: z.string().default("USD"),
   timezone: z.string().default("America/New_York"),
   defaultTaxYear: z.number().int().optional(),
+  /** When true (default), advisor chat auto-saves explicit household profile updates. */
+  advisorAutoSave: z.boolean().default(true),
 });
 export type HouseholdSettings = z.infer<typeof HouseholdSettingsSchema>;
 
@@ -46,11 +48,22 @@ export type Household = z.infer<typeof HouseholdSchema>;
 /** Normalize legacy `state`-only documents to include `primaryState`. */
 export function normalizeHousehold(household: Household): Household {
   const primaryState = household.primaryState ?? household.state;
+  const settings = {
+    currency: household.settings?.currency ?? "USD",
+    timezone: household.settings?.timezone ?? "America/New_York",
+    defaultTaxYear: household.settings?.defaultTaxYear,
+    advisorAutoSave: household.settings?.advisorAutoSave ?? true,
+  };
   return {
     ...household,
     primaryState,
     state: household.state ?? primaryState,
+    settings,
   };
+}
+
+export function isAdvisorAutoSaveEnabled(household: Household): boolean {
+  return normalizeHousehold(household).settings?.advisorAutoSave !== false;
 }
 
 export const CreateHouseholdRequestSchema = z.object({

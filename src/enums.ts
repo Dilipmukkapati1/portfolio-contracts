@@ -107,6 +107,7 @@ export const DataProvenanceSchema = z.enum([
   "derived",
   "integration",
   "member_aggregate",
+  "chat_auto_save",
 ]);
 export type DataProvenance = z.infer<typeof DataProvenanceSchema>;
 

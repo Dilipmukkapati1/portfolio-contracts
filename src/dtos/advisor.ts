@@ -72,10 +72,28 @@ export const AdvisorChatRequestSchema = z
   });
 export type AdvisorChatRequest = z.infer<typeof AdvisorChatRequestSchema>;
 
+export const AdvisorAutoSaveChangeSchema = z.object({
+  field: z.string(),
+  label: z.string(),
+  before: z.string().optional(),
+  after: z.string().optional(),
+});
+export type AdvisorAutoSaveChange = z.infer<typeof AdvisorAutoSaveChangeSchema>;
+
+export const AdvisorAutoSaveResultSchema = z.object({
+  enabled: z.boolean(),
+  attempted: z.boolean(),
+  applied: z.boolean(),
+  changes: z.array(AdvisorAutoSaveChangeSchema).default([]),
+  skippedReason: z.string().optional(),
+});
+export type AdvisorAutoSaveResult = z.infer<typeof AdvisorAutoSaveResultSchema>;
+
 export const AdvisorChatResponseSchema = z.object({
   conversationId: z.string(),
   message: AdvisorMessageSchema,
   disclaimer: z.string(),
+  autoSave: AdvisorAutoSaveResultSchema.optional(),
 });
 export type AdvisorChatResponse = z.infer<typeof AdvisorChatResponseSchema>;
 
