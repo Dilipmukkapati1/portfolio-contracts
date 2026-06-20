@@ -37,6 +37,8 @@ export const HouseholdSchema = z.object({
   filingStatus: FilingStatusSchema.optional(),
   dependents: z.number().int().min(0).optional(),
   persona: PersonaSchema,
+  /** Liquid cash balance for planning (not included in AGI). */
+  liquidCashSnapshot: z.number().min(0).optional(),
   netWorthSummary: NetWorthSummarySchema.optional(),
   monthlySpendSummary: MonthlySpendSummarySchema.optional(),
   settings: HouseholdSettingsSchema.optional(),
@@ -86,7 +88,9 @@ export function resolvePrimaryState(data: {
   return raw.toUpperCase();
 }
 
-export const UpdateHouseholdRequestSchema = CreateHouseholdRequestSchema.partial();
+export const UpdateHouseholdRequestSchema = CreateHouseholdRequestSchema.partial().extend({
+  liquidCashSnapshot: z.number().min(0).optional(),
+});
 export type UpdateHouseholdRequest = z.infer<typeof UpdateHouseholdRequestSchema>;
 
 const HouseholdIdSchema = z

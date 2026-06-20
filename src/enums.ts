@@ -77,6 +77,8 @@ export type MemberRelationship = z.infer<typeof MemberRelationshipSchema>;
 
 export const IncomeSourceTypeSchema = z.enum([
   "wages",
+  "bonus",
+  "cash_income",
   "self_employment",
   "interest",
   "dividends",
@@ -84,6 +86,16 @@ export const IncomeSourceTypeSchema = z.enum([
   "capital_gains_long",
   "other",
 ]);
+
+export const IncomeAmountModeSchema = z.enum(["fixed", "percent_of_wages"]);
+export type IncomeAmountMode = z.infer<typeof IncomeAmountModeSchema>;
+
+export const ContributionAmountModeSchema = z.enum([
+  "fixed",
+  "percent_of_wages",
+  "percent_of_wages_and_bonus",
+]);
+export type ContributionAmountMode = z.infer<typeof ContributionAmountModeSchema>;
 export type IncomeSourceType = z.infer<typeof IncomeSourceTypeSchema>;
 
 export const ContributionTypeSchema = z.enum([

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
+  ContributionAmountModeSchema,
   ContributionTypeSchema,
+  IncomeAmountModeSchema,
   IncomeSourceTypeSchema,
   MemberRelationshipSchema,
 } from "../enums.js";
@@ -10,6 +12,8 @@ export const IncomeLineItemSchema = z.object({
   type: IncomeSourceTypeSchema,
   amount: z.number().min(0),
   label: z.string().optional(),
+  amountMode: IncomeAmountModeSchema.optional(),
+  percent: z.number().min(0).max(100).optional(),
 });
 export type IncomeLineItem = z.infer<typeof IncomeLineItemSchema>;
 
@@ -18,6 +22,8 @@ export const ContributionLineItemSchema = z.object({
   type: ContributionTypeSchema,
   amount: z.number().min(0),
   label: z.string().optional(),
+  amountMode: ContributionAmountModeSchema.optional(),
+  percent: z.number().min(0).max(100).optional(),
 });
 export type ContributionLineItem = z.infer<typeof ContributionLineItemSchema>;
 

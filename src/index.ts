@@ -2,6 +2,8 @@ export * from "./enums.js";
 export * from "./investmentCategory.js";
 export * from "./queue.js";
 export * from "./taxAggregation.js";
+export * from "./contributionLimits.js";
+export * from "./memberIncome.js";
 export * from "./dtos/household.js";
 export * from "./dtos/member.js";
 export * from "./dtos/taxProfile.js";

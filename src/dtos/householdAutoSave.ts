@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { ContributionType, FilingStatus } from "../enums.js";
 import {
+  ContributionAmountModeSchema,
   ContributionTypeSchema,
   FilingStatusSchema,
+  IncomeAmountModeSchema,
   IncomeSourceTypeSchema,
   MemberRelationshipSchema,
   PersonaSchema,
@@ -10,6 +12,18 @@ import {
 import type { Member } from "./member.js";
 import type { ContributionLineItem, IncomeLineItem } from "./member.js";
 import type { TaxRuleLimits } from "../taxAggregation.js";
+import {
+  allocateHouseholdLimit,
+  householdScopedContributionTypes,
+  isHouseholdScopedType,
+  normalizeHouseholdContributions,
+  statutoryLimit,
+  type LimitContext,
+} from "../contributionLimits.js";
+import {
+  resolveMemberContributionAmount,
+  resolveMemberIncomeAmounts,
+} from "../memberIncome.js";
 
 export const HouseholdAutoSaveChangeSchema = z.object({
   field: z.string(),
@@ -33,6 +47,8 @@ export const HouseholdAutoSaveIncomePatchSchema = z.object({
   amount: z.number().optional(),
   period: z.enum(["annual", "monthly"]).default("annual"),
   updateMode: z.enum(["set", "add"]).default("set"),
+  amountMode: IncomeAmountModeSchema.optional(),
+  percent: z.number().min(0).max(100).optional(),
 });
 export type HouseholdAutoSaveIncomePatch = z.infer<
   typeof HouseholdAutoSaveIncomePatchSchema
@@ -43,6 +59,8 @@ export const HouseholdAutoSaveContributionPatchSchema = z.object({
   amount: z.number().optional(),
   amountExpression: z.enum(["explicit", "max", "half_max"]).default("explicit"),
   updateMode: z.enum(["set", "add"]).default("set"),
+  amountMode: ContributionAmountModeSchema.optional(),
+  percent: z.number().min(0).max(100).optional(),
 });
 export type HouseholdAutoSaveContributionPatch = z.infer<
   typeof HouseholdAutoSaveContributionPatchSchema
@@ -67,6 +85,7 @@ export const HouseholdAutoSavePatchSchema = z
     persona: PersonaSchema.nullable().optional(),
     filingStatus: FilingStatusSchema.nullable().optional(),
     defaultTaxYear: z.number().int().nullable().optional(),
+    liquidCashSnapshot: z.number().nullable().optional(),
     members: z.array(HouseholdAutoSaveMemberPatchSchema).optional().nullable(),
   })
   .strip();
@@ -79,6 +98,28 @@ export function parseHouseholdAutoSavePatch(value: unknown): HouseholdAutoSavePa
 
 function activeEarners(members: Member[]): Member[] {
   return members.filter((m) => m.isActive && m.relationship !== "dependent");
+}
+
+function activeDependents(members: Member[]): Member[] {
+  return members.filter((m) => m.isActive && m.relationship === "dependent");
+}
+
+function membersMatchingNameInMessage(
+  message: string,
+  members: Member[]
+): Member[] {
+  const lower = message.toLowerCase();
+  return members.filter((m) => {
+    if (!m.isActive) return false;
+    const name = m.name.trim().toLowerCase();
+    if (!name) return false;
+    if (lower.includes(name)) return true;
+    const first = name.split(/\s+/)[0]!;
+    if (first.length < 2) return false;
+    return new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+      lower
+    );
+  });
 }
 
 function contributionTargetsForMessage(
@@ -109,6 +150,52 @@ function contributionTargetsForMessage(
   return [earners[0]!];
 }
 
+function incomeTargetsForMessage(message: string, members: Member[]): Member[] {
+  const lower = message.toLowerCase();
+  const dependents = activeDependents(members);
+
+  const childNameMatch = message.match(
+    /\b(?:my\s+)?(?:son|daughter|kid|child)\s+([A-Z][a-z]+)/i
+  );
+  if (childNameMatch) {
+    const name = childNameMatch[1]!;
+    const dep = dependents.find(
+      (m) => m.name.toLowerCase() === name.toLowerCase()
+    );
+    if (dep) return [dep];
+    return [];
+  }
+
+  const namedDependentMatch = message.match(
+    /\b([A-Z][a-z]+)\s+(?:earns?|made|makes?)\b/i
+  );
+  if (namedDependentMatch && /\b(kid|child|son|daughter|dependent)\b/i.test(message)) {
+    const name = namedDependentMatch[1]!;
+    const dep = dependents.find(
+      (m) => m.name.toLowerCase() === name.toLowerCase()
+    );
+    if (dep) return [dep];
+  }
+
+  if (/\b(kid|kids|child|children|son|daughter|dependent)\b/i.test(lower)) {
+    if (dependents.length === 1) return [dependents[0]!];
+    if (dependents.length > 1 && namedDependentMatch) {
+      const name = namedDependentMatch[1]!;
+      const dep = dependents.find(
+        (m) => m.name.toLowerCase() === name.toLowerCase()
+      );
+      if (dep) return [dep];
+    }
+  }
+
+  const namedMembers = membersMatchingNameInMessage(message, members);
+  if (namedMembers.length > 0) {
+    return namedMembers;
+  }
+
+  return contributionTargetsForMessage(message, members);
+}
+
 function mentionsMax401k(message: string): boolean {
   if (!/(401\s*\(?k|401k)/i.test(message)) return false;
   return (
@@ -121,6 +208,21 @@ function mentionsMax401k(message: string): boolean {
 
 function mentionsMaxHsa(message: string): boolean {
   if (!/\bhsa\b/i.test(message)) return false;
+  return (
+    /\bmax(ed|ing)?\b/i.test(message) ||
+    /\bmax\s*out\b/i.test(message) ||
+    /\bhit\s*(the\s*)?limit\b/i.test(message)
+  );
+}
+
+function mentionsMaxDcfsa(message: string): boolean {
+  if (
+    !/\b(dependent\s*care\s*fsa|dcfsa|child\s*care\s*fsa|dependent\s*care)\b/i.test(
+      message
+    )
+  ) {
+    return false;
+  }
   return (
     /\bmax(ed|ing)?\b/i.test(message) ||
     /\bmax\s*out\b/i.test(message) ||
@@ -174,6 +276,153 @@ function inferIncomeFromMessage(
   return null;
 }
 
+function inferBonusFromMessage(
+  message: string
+): HouseholdAutoSaveIncomePatch | null {
+  if (!/\bbonus\b/i.test(message)) return null;
+
+  const pctBonusOnBase = message.match(
+    /\b(\d+(?:\.\d+)?)\s*%\s*bonus(?:\s+on\s+(?:base\s+)?(?:salary|wages|income))?/i
+  );
+  if (pctBonusOnBase) {
+    return {
+      type: "bonus",
+      amountMode: "percent_of_wages",
+      percent: Number.parseFloat(pctBonusOnBase[1]!),
+      period: "annual",
+      updateMode: "set",
+    };
+  }
+
+  const getPctBonus = message.match(
+    /\b(?:gets?|get|receives?|receive|earns?|earn|has|have)\s+(\d+(?:\.\d+)?)\s*%\s*bonus\b/i
+  );
+  if (getPctBonus) {
+    return {
+      type: "bonus",
+      amountMode: "percent_of_wages",
+      percent: Number.parseFloat(getPctBonus[1]!),
+      period: "annual",
+      updateMode: "set",
+    };
+  }
+
+  const pctMatch = message.match(
+    /\b(\d+(?:\.\d+)?)\s*%\s*(?:of\s+)?(?:base\s+)?(?:salary|wages|income)\b/i
+  );
+  if (pctMatch) {
+    return {
+      type: "bonus",
+      amountMode: "percent_of_wages",
+      percent: Number.parseFloat(pctMatch[1]!),
+      period: "annual",
+      updateMode: "set",
+    };
+  }
+  const pctBonusMatch = message.match(
+    /\bbonus\s+(?:is\s+)?(\d+(?:\.\d+)?)\s*%/i
+  );
+  if (pctBonusMatch) {
+    return {
+      type: "bonus",
+      amountMode: "percent_of_wages",
+      percent: Number.parseFloat(pctBonusMatch[1]!),
+      period: "annual",
+      updateMode: "set",
+    };
+  }
+  const fixedMatch = message.match(
+    /\bbonus\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?/i
+  );
+  if (fixedMatch) {
+    const amount = parseMoneyAmount(fixedMatch[1]!, fixedMatch[2]);
+    if (amount != null) {
+      return {
+        type: "bonus",
+        amountMode: "fixed",
+        amount,
+        period: "annual",
+        updateMode: "set",
+      };
+    }
+  }
+  return null;
+}
+
+function inferCashIncomeFromMessage(
+  message: string
+): HouseholdAutoSaveIncomePatch | null {
+  if (!/\bcash\s+income\b/i.test(message)) return null;
+  const match = message.match(/\$\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?/i);
+  if (!match) return null;
+  const amount = parseMoneyAmount(match[1]!, match[2]);
+  if (amount == null) return null;
+  return { type: "cash_income", amount, period: "annual", updateMode: "set" };
+}
+
+function inferEmployerMatchFromMessage(
+  message: string
+): HouseholdAutoSaveContributionPatch | null {
+  if (!/\b(employer\s+match|company\s+match|401\s*\(?k\s+match)\b/i.test(message)) {
+    return null;
+  }
+  const baseBonusMatch = message.match(
+    /\b(\d+(?:\.\d+)?)\s*%\s*(?:match|employer\s+match).*(?:salary\s+and\s+bonus|base\s*\+\s*bonus|base\s+and\s+bonus)/i
+  );
+  if (baseBonusMatch) {
+    return {
+      type: "employer_match",
+      amountMode: "percent_of_wages_and_bonus",
+      percent: Number.parseFloat(baseBonusMatch[1]!),
+      amountExpression: "explicit",
+      updateMode: "set",
+    };
+  }
+  const pctMatch = message.match(
+    /\b(\d+(?:\.\d+)?)\s*%\s*(?:employer\s+match|company\s+match|match(?:es)?\s+(?:of|on)\s+(?:salary|wages|base))/i
+  );
+  if (pctMatch) {
+    return {
+      type: "employer_match",
+      amountMode: "percent_of_wages",
+      percent: Number.parseFloat(pctMatch[1]!),
+      amountExpression: "explicit",
+      updateMode: "set",
+    };
+  }
+  const fixedMatch = message.match(
+    /\b(?:employer\s+match|company\s+match)\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?/i
+  );
+  if (fixedMatch) {
+    const amount = parseMoneyAmount(fixedMatch[1]!, fixedMatch[2]);
+    if (amount != null) {
+      return {
+        type: "employer_match",
+        amountMode: "fixed",
+        amount,
+        amountExpression: "explicit",
+        updateMode: "set",
+      };
+    }
+  }
+  return null;
+}
+
+function inferAddDependentFromMessage(
+  message: string
+): HouseholdAutoSaveMemberPatch | null {
+  const match = message.match(
+    /\b(?:add|new)\s+(?:kid|child|dependent|son|daughter)\s+([A-Z][a-z]+)/i
+  );
+  if (!match) return null;
+  const name = match[1]!;
+  return {
+    matchName: name,
+    name,
+    relationship: "dependent",
+  };
+}
+
 function inferContributionType(message: string): ContributionType | null {
   if (/(401\s*\(?k|401k)/i.test(message)) return "401k";
   if (/(403\s*\(?b|403b)/i.test(message)) return "403b";
@@ -188,7 +437,9 @@ function inferExplicitContributionFromMessage(
 ): { type: ContributionType; amount: number } | null {
   const type = inferContributionType(message);
   if (!type) return null;
-  if (mentionsMax401k(message) || mentionsMaxHsa(message)) return null;
+  if (mentionsMax401k(message) || mentionsMaxHsa(message) || mentionsMaxDcfsa(message)) {
+    return null;
+  }
 
   const monthlyMatch = message.match(
     /\$\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?\s*(?:\/\s*mo(?:nth)?|per\s*month|monthly|a\s*month)/i
@@ -237,43 +488,80 @@ export function inferMemberPatchesFromMessage(
   message: string,
   members: Member[]
 ): HouseholdAutoSaveMemberPatch[] {
-  const targets = contributionTargetsForMessage(message, members);
-  if (targets.length === 0) return [];
+  const addDependent = inferAddDependentFromMessage(message);
+  if (addDependent) return [addDependent];
+
+  const incomeTargets = incomeTargetsForMessage(message, members);
+  const contributionTargets = contributionTargetsForMessage(message, members);
+  const bonus = inferBonusFromMessage(message);
+  const cashIncome = inferCashIncomeFromMessage(message);
+
+  if (
+    incomeTargets.length === 0 &&
+    contributionTargets.length === 0 &&
+    !bonus &&
+    !cashIncome
+  ) {
+    return [];
+  }
 
   const byMemberId = new Map<string, HouseholdAutoSaveMemberPatch>();
   const income = inferIncomeFromMessage(message);
   const explicitContribution = inferExplicitContributionFromMessage(message);
+  const employerMatch = inferEmployerMatchFromMessage(message);
 
-  for (const member of targets) {
+  const allTargets = new Map<string, Member>();
+  const targetMembers =
+    incomeTargets.length > 0
+      ? incomeTargets
+      : bonus || cashIncome
+        ? contributionTargetsForMessage(message, members)
+        : [];
+  for (const m of [...targetMembers, ...contributionTargets]) {
+    allTargets.set(m.id, m);
+  }
+
+  for (const member of allTargets.values()) {
+    const isDependent = member.relationship === "dependent";
     let patch: HouseholdAutoSaveMemberPatch = {
       matchName: member.name,
       relationship: member.relationship,
     };
 
-    if (mentionsMax401k(message)) {
+    if (!isDependent && mentionsMax401k(message)) {
       patch = mergeMemberPatch(patch, {
         matchName: member.name,
-        relationship: member.relationship,
         contributions: [
           { type: "401k", amountExpression: "max", updateMode: "set" },
         ],
       });
     }
 
-    if (mentionsMaxHsa(message)) {
+    if (!isDependent && mentionsMaxHsa(message) && contributionTargets.includes(member)) {
       patch = mergeMemberPatch(patch, {
         matchName: member.name,
-        relationship: member.relationship,
         contributions: [
           { type: "hsa", amountExpression: "max", updateMode: "set" },
         ],
       });
     }
 
-    if (income) {
+    if (!isDependent && mentionsMaxDcfsa(message) && contributionTargets.includes(member)) {
       patch = mergeMemberPatch(patch, {
         matchName: member.name,
-        relationship: member.relationship,
+        contributions: [
+          {
+            type: "fsa_dependent_care",
+            amountExpression: "max",
+            updateMode: "set",
+          },
+        ],
+      });
+    }
+
+    if (income && incomeTargets.includes(member)) {
+      patch = mergeMemberPatch(patch, {
+        matchName: member.name,
         incomeSources: [
           {
             type: "wages",
@@ -285,10 +573,23 @@ export function inferMemberPatchesFromMessage(
       });
     }
 
-    if (explicitContribution) {
+    if (bonus && (incomeTargets.includes(member) || targetMembers.includes(member))) {
       patch = mergeMemberPatch(patch, {
         matchName: member.name,
-        relationship: member.relationship,
+        incomeSources: [bonus],
+      });
+    }
+
+    if (cashIncome && (incomeTargets.includes(member) || targetMembers.includes(member))) {
+      patch = mergeMemberPatch(patch, {
+        matchName: member.name,
+        incomeSources: [cashIncome],
+      });
+    }
+
+    if (explicitContribution && !isDependent && contributionTargets.includes(member)) {
+      patch = mergeMemberPatch(patch, {
+        matchName: member.name,
         contributions: [
           {
             type: explicitContribution.type,
@@ -300,9 +601,17 @@ export function inferMemberPatchesFromMessage(
       });
     }
 
+    if (employerMatch && !isDependent && contributionTargets.includes(member)) {
+      patch = mergeMemberPatch(patch, {
+        matchName: member.name,
+        contributions: [employerMatch],
+      });
+    }
+
     if (
       (patch.incomeSources?.length ?? 0) > 0 ||
-      (patch.contributions?.length ?? 0) > 0
+      (patch.contributions?.length ?? 0) > 0 ||
+      patch.relationship === "dependent"
     ) {
       byMemberId.set(member.id, patch);
     }
@@ -345,11 +654,18 @@ export function enrichPatchWithInferredMembers(
     const missingContribs = (inferredPatch.contributions ?? []).filter(
       (c) => !existingContribTypes.has(c.type)
     );
-    if (missingContribs.length === 0) continue;
+    const existingIncomeTypes = new Set(
+      (current.incomeSources ?? []).map((i) => i.type)
+    );
+    const missingIncome = (inferredPatch.incomeSources ?? []).filter(
+      (i) => !existingIncomeTypes.has(i.type)
+    );
+    if (missingContribs.length === 0 && missingIncome.length === 0) continue;
 
     merged[existingIdx] = {
       ...current,
       contributions: [...(current.contributions ?? []), ...missingContribs],
+      incomeSources: [...(current.incomeSources ?? []), ...missingIncome],
     };
   }
 
@@ -371,6 +687,14 @@ const RETIREMENT_TYPES: ContributionType[] = [
   "solo_401k",
   "simple_ira",
 ];
+
+function toLimitContext(ctx: ResolveContributionContext): LimitContext {
+  return {
+    filingStatus: ctx.filingStatus,
+    dependentCount: ctx.dependentCount,
+    rules: ctx.rules,
+  };
+}
 
 function newLineId(): string {
   return `line-${crypto.randomUUID()}`;
@@ -436,17 +760,22 @@ export function resolveContributionAmount(
   explicitAmount: number | undefined,
   ctx: ResolveContributionContext
 ): number {
-  const retirementLimit = ctx.rules.retirement401kLimit ?? 23500;
-  const hsaSingle = ctx.rules.hsaSingleLimit ?? 4300;
-  const hsaFamily = ctx.rules.hsaFamilyLimit ?? 8550;
-  const useFamilyHsa =
-    ctx.filingStatus === "married_filing_jointly" || ctx.dependentCount > 0;
+  const limitCtx = toLimitContext(ctx);
+
+  if (isHouseholdScopedType(type, limitCtx)) {
+    const cap = statutoryLimit(type, limitCtx);
+    if (expression === "max") return cap;
+    if (expression === "half_max") return Math.round(cap / 2);
+    return Math.max(0, explicitAmount ?? 0);
+  }
 
   let limit: number;
   if (type === "hsa") {
-    limit = useFamilyHsa ? hsaFamily : hsaSingle;
+    limit = statutoryLimit(type, limitCtx);
   } else if (RETIREMENT_TYPES.includes(type)) {
-    limit = retirementLimit;
+    limit = statutoryLimit("401k", limitCtx);
+  } else if (type === "fsa_health") {
+    limit = statutoryLimit("fsa_health", limitCtx);
   } else {
     limit = explicitAmount ?? 0;
     if (expression === "max") return limit;
@@ -465,48 +794,153 @@ function upsertIncomeLine(
 ): IncomeLineItem[] {
   const amount = annualizeIncomeAmount(patch.amount ?? 0, patch.period);
   const idx = existing.findIndex((line) => line.type === patch.type);
-  if (idx === -1) {
-    return [
-      ...existing,
-      { id: newLineId(), type: patch.type, amount: Math.max(0, amount) },
-    ];
-  }
+  const lineData: IncomeLineItem = {
+    id: idx >= 0 ? existing[idx]!.id : newLineId(),
+    type: patch.type,
+    amount:
+      patch.type === "bonus" && patch.amountMode === "percent_of_wages"
+        ? 0
+        : Math.max(0, amount),
+    ...(patch.amountMode ? { amountMode: patch.amountMode } : {}),
+    ...(patch.percent != null ? { percent: patch.percent } : {}),
+  };
+  if (idx === -1) return [...existing, lineData];
   const line = existing[idx]!;
+  if (patch.type === "bonus" && patch.amountMode === "percent_of_wages") {
+    return existing.map((l, i) =>
+      i === idx
+        ? {
+            ...l,
+            amount: 0,
+            amountMode: patch.amountMode,
+            percent: patch.percent,
+          }
+        : l
+    );
+  }
   const nextAmount =
     patch.updateMode === "add"
       ? Math.max(0, line.amount + amount)
       : Math.max(0, amount);
   return existing.map((l, i) =>
-    i === idx ? { ...l, amount: nextAmount } : l
+    i === idx ? { ...lineData, amount: nextAmount } : l
   );
 }
 
 function upsertContributionLine(
   existing: ContributionLineItem[],
   patch: HouseholdAutoSaveContributionPatch,
+  member: Member,
   ctx: ResolveContributionContext
 ): ContributionLineItem[] {
-  const amount = resolveContributionAmount(
-    patch.type,
-    patch.amountExpression,
-    patch.amount,
-    ctx
-  );
-  const idx = existing.findIndex((line) => line.type === patch.type);
-  if (idx === -1) {
-    return [
-      ...existing,
-      { id: newLineId(), type: patch.type, amount: Math.max(0, amount) },
-    ];
+  let amount: number;
+  if (patch.type === "employer_match" && patch.amountMode && patch.amountMode !== "fixed") {
+    const draft: ContributionLineItem = {
+      id: newLineId(),
+      type: "employer_match",
+      amount: 0,
+      amountMode: patch.amountMode,
+      percent: patch.percent,
+    };
+    amount = resolveMemberContributionAmount(member, draft);
+  } else {
+    amount = resolveContributionAmount(
+      patch.type,
+      patch.amountExpression,
+      patch.amount,
+      ctx
+    );
   }
+
+  const idx = existing.findIndex((line) => line.type === patch.type);
+  const lineData: ContributionLineItem = {
+    id: idx >= 0 ? existing[idx]!.id : newLineId(),
+    type: patch.type,
+    amount: Math.max(0, amount),
+    ...(patch.amountMode ? { amountMode: patch.amountMode } : {}),
+    ...(patch.percent != null ? { percent: patch.percent } : {}),
+  };
+
+  if (idx === -1) return [...existing, lineData];
+
   const line = existing[idx]!;
   const nextAmount =
     patch.updateMode === "add"
       ? Math.max(0, line.amount + amount)
       : Math.max(0, amount);
   return existing.map((l, i) =>
-    i === idx ? { ...l, amount: nextAmount } : l
+    i === idx ? { ...lineData, amount: nextAmount } : l
   );
+}
+
+function applyHouseholdContributionAllocations(
+  members: Member[],
+  patches: HouseholdAutoSaveMemberPatch[],
+  ctx: ResolveContributionContext
+): Member[] {
+  const limitCtx = toLimitContext(ctx);
+  const scopedTypes = householdScopedContributionTypes(limitCtx);
+  let result = members;
+
+  for (const type of scopedTypes) {
+    const targets: Array<{
+      memberId: string;
+      expression: "max" | "half_max" | "explicit";
+      explicitAmount?: number;
+    }> = [];
+
+    for (const patch of patches) {
+      const idx = findMemberIndex(result, patch);
+      if (idx < 0) continue;
+      const member = result[idx]!;
+      for (const contrib of patch.contributions ?? []) {
+        if (contrib.type !== type) continue;
+        targets.push({
+          memberId: member.id,
+          expression: contrib.amountExpression,
+          explicitAmount: contrib.amount,
+        });
+      }
+    }
+
+    if (targets.length === 0) continue;
+
+    const allocated = allocateHouseholdLimit({
+      type,
+      targets,
+      existingMembers: result,
+      ctx: limitCtx,
+      strategy: "split_even",
+    });
+
+    result = result.map((member) => {
+      const amount = allocated.get(member.id);
+      if (amount == null) return member;
+      const lines = [...(member.contributions ?? [])];
+      const idx = lines.findIndex((l) => l.type === type);
+      if (idx === -1) {
+        lines.push({ id: newLineId(), type, amount });
+      } else {
+        lines[idx] = { ...lines[idx]!, amount };
+      }
+      return { ...member, contributions: lines };
+    });
+  }
+
+  return result;
+}
+
+function reResolveEmployerMatch(members: Member[]): Member[] {
+  return members.map((member) => ({
+    ...member,
+    contributions: (member.contributions ?? []).map((line) => {
+      if (line.type !== "employer_match") return line;
+      return {
+        ...line,
+        amount: resolveMemberContributionAmount(member, line),
+      };
+    }),
+  }));
 }
 
 function createMemberFromPatch(
@@ -521,21 +955,31 @@ function createMemberFromPatch(
   for (const income of patch.incomeSources ?? []) {
     incomeSources = upsertIncomeLine(incomeSources, income);
   }
-  for (const contrib of patch.contributions ?? []) {
-    contributions = upsertContributionLine(contributions, contrib, ctx);
-  }
 
-  return {
+  const memberDraft: Member = {
     id: newLineId(),
     householdId,
     name: (patch.name ?? patch.matchName).trim(),
     relationship: patch.relationship ?? "other",
     isActive: true,
     incomeSources,
-    contributions,
+    contributions: [],
     createdAt: now,
     updatedAt: now,
   };
+
+  for (const contrib of patch.contributions ?? []) {
+    const limitCtx = toLimitContext(ctx);
+    if (isHouseholdScopedType(contrib.type, limitCtx)) continue;
+    contributions = upsertContributionLine(
+      contributions,
+      contrib,
+      memberDraft,
+      ctx
+    );
+  }
+
+  return { ...memberDraft, contributions };
 }
 
 export function mergeMemberPatches(
@@ -580,10 +1024,14 @@ export function mergeMemberPatches(
     }
 
     let contributions = [...(updated.contributions ?? [])];
+    const limitCtx = toLimitContext(options.contributionContext);
     for (const contrib of patch.contributions ?? []) {
+      if (isHouseholdScopedType(contrib.type, limitCtx)) continue;
+      const memberWithIncome = { ...updated, incomeSources };
       contributions = upsertContributionLine(
         contributions,
         contrib,
+        memberWithIncome,
         options.contributionContext
       );
     }
@@ -591,5 +1039,33 @@ export function mergeMemberPatches(
     members[idx] = { ...updated, incomeSources, contributions };
   }
 
+  members = applyHouseholdContributionAllocations(
+    members,
+    patches,
+    options.contributionContext
+  );
+
+  members = normalizeHouseholdContributions(
+    members,
+    toLimitContext(options.contributionContext)
+  );
+
+  members = reResolveEmployerMatch(members);
+
   return members;
+}
+
+export function inferLiquidCashFromMessage(message: string): number | null {
+  if (!/\b(liquid\s+cash|cash\s+on\s+hand|cash\s+balance|in\s+cash)\b/i.test(message)) {
+    return null;
+  }
+  const match = message.match(/\$\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?/i);
+  if (!match) return null;
+  return parseMoneyAmount(match[1]!, match[2]);
+}
+
+/** Exported for tests — resolve annual wages including bonus for a member. */
+export function resolvedWagesForMember(member: Member): number {
+  const { wages, bonus } = resolveMemberIncomeAmounts(member);
+  return wages + bonus;
 }

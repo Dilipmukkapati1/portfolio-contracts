@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildTaxProfileFromMembers,
+  computeContributionLimits,
   countDependents,
   prepareTaxInputForEstimate,
   sumDeductibleMemberContributions,
@@ -169,5 +170,122 @@ describe("taxAggregation", () => {
     expect(prepared.adjustments).toBe(47000);
     expect(prepared.retirementContributions).toBe(0);
     expect(prepared.hsaContributions).toBe(0);
+  });
+
+  it("deducts full family HSA when one spouse contributes max MFJ", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [{ id: "c1", type: "hsa", amount: 8750 }],
+      }),
+      member({ id: "m2", name: "Jordan", relationship: "spouse" }),
+    ];
+    const deductible = sumDeductibleMemberContributions(
+      members,
+      { hsaFamilyLimit: 8750, hsaSingleLimit: 4400 },
+      "married_filing_jointly",
+      0
+    );
+    expect(deductible.hsaContributions).toBe(8750);
+  });
+
+  it("aggregates bonus into wages", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        incomeSources: [
+          { id: "i1", type: "wages", amount: 100000 },
+          {
+            id: "i2",
+            type: "bonus",
+            amountMode: "percent_of_wages",
+            percent: 10,
+            amount: 0,
+          },
+        ],
+      }),
+    ];
+    const totals = sumMemberIncome(members);
+    expect(totals.wages).toBe(110000);
+  });
+
+  it("maps cash income to otherIncome", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        incomeSources: [{ id: "i1", type: "cash_income", amount: 5000 }],
+      }),
+    ];
+    const totals = sumMemberIncome(members);
+    expect(totals.otherIncome).toBe(5000);
+  });
+
+  it("emits household-scoped HSA limit row for MFJ", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [{ id: "c1", type: "hsa", amount: 4375 }],
+      }),
+      member({
+        id: "m2",
+        name: "Jordan",
+        relationship: "spouse",
+        contributions: [{ id: "c2", type: "hsa", amount: 4375 }],
+      }),
+    ];
+    const limits = computeContributionLimits(
+      members,
+      "married_filing_jointly",
+      0,
+      { hsaFamilyLimit: 8750 }
+    );
+    const hsa = limits.find((l) => l.type === "hsa");
+    expect(hsa).toMatchObject({
+      scope: "household",
+      contributed: 8750,
+      limit: 8750,
+      remaining: 0,
+    });
+  });
+
+  it("emits household-scoped DCFSA limit row", () => {
+    const members = [
+      member({
+        id: "m1",
+        name: "Alex",
+        relationship: "self",
+        contributions: [
+          { id: "c1", type: "fsa_dependent_care", amount: 2500 },
+        ],
+      }),
+      member({
+        id: "m2",
+        name: "Jordan",
+        relationship: "spouse",
+        contributions: [
+          { id: "c2", type: "fsa_dependent_care", amount: 2500 },
+        ],
+      }),
+    ];
+    const limits = computeContributionLimits(
+      members,
+      "married_filing_jointly",
+      0,
+      { fsaDependentCareLimit: 5000 }
+    );
+    const dcfsa = limits.find((l) => l.type === "fsa_dependent_care");
+    expect(dcfsa).toMatchObject({
+      scope: "household",
+      contributed: 5000,
+      limit: 5000,
+    });
   });
 });

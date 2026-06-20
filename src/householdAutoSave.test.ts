@@ -6,7 +6,9 @@ import {
   inferMemberPatchesFromMessage,
   mergeMemberPatches,
   resolveContributionAmount,
+  resolvedWagesForMember,
 } from "./dtos/householdAutoSave.js";
+import { resolveMemberContributionAmount } from "./memberIncome.js";
 
 function member(overrides: Partial<Member> & Pick<Member, "id" | "name">): Member {
   const now = new Date().toISOString();
@@ -30,6 +32,8 @@ const ctx = {
     retirement401kLimit: 24500,
     hsaSingleLimit: 4400,
     hsaFamilyLimit: 8750,
+    fsaDependentCareLimit: 5000,
+    fsaDependentCareLimitMfs: 2500,
   },
 };
 
@@ -157,6 +161,137 @@ describe("mergeMemberPatches", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0]!.contributions[0]).toMatchObject({ amount: 24500 });
   });
+
+  it("splits max HSA across both earners for MFJ", () => {
+    const existing = [
+      member({ id: "m1", name: "Alex", relationship: "self" }),
+      member({ id: "m2", name: "Jordan", relationship: "spouse" }),
+    ];
+    const merged = mergeMemberPatches(
+      existing,
+      [
+        {
+          matchName: "Alex",
+          contributions: [{ type: "hsa", amountExpression: "max", updateMode: "set" }],
+        },
+        {
+          matchName: "Jordan",
+          contributions: [{ type: "hsa", amountExpression: "max", updateMode: "set" }],
+        },
+      ],
+      { householdId: "hh1", contributionContext: ctx }
+    );
+    const hsaTotal =
+      (merged[0]!.contributions.find((c) => c.type === "hsa")?.amount ?? 0) +
+      (merged[1]!.contributions.find((c) => c.type === "hsa")?.amount ?? 0);
+    expect(hsaTotal).toBe(8750);
+    expect(merged[0]!.contributions.find((c) => c.type === "hsa")?.amount).toBe(
+      4375
+    );
+    expect(merged[1]!.contributions.find((c) => c.type === "hsa")?.amount).toBe(
+      4375
+    );
+  });
+
+  it("splits max DCFSA across both earners for MFJ", () => {
+    const existing = [
+      member({ id: "m1", name: "Alex", relationship: "self" }),
+      member({ id: "m2", name: "Jordan", relationship: "spouse" }),
+    ];
+    const merged = mergeMemberPatches(
+      existing,
+      [
+        {
+          matchName: "Alex",
+          contributions: [
+            { type: "fsa_dependent_care", amountExpression: "max", updateMode: "set" },
+          ],
+        },
+        {
+          matchName: "Jordan",
+          contributions: [
+            { type: "fsa_dependent_care", amountExpression: "max", updateMode: "set" },
+          ],
+        },
+      ],
+      { householdId: "hh1", contributionContext: ctx }
+    );
+    const total =
+      (merged[0]!.contributions.find((c) => c.type === "fsa_dependent_care")
+        ?.amount ?? 0) +
+      (merged[1]!.contributions.find((c) => c.type === "fsa_dependent_care")
+        ?.amount ?? 0);
+    expect(total).toBe(5000);
+  });
+
+  it("resolves percent bonus into wages aggregate", () => {
+    const existing = [
+      member({
+        id: "m1",
+        name: "Alex",
+        incomeSources: [{ id: "i1", type: "wages", amount: 100000 }],
+      }),
+    ];
+    const merged = mergeMemberPatches(
+      existing,
+      [
+        {
+          matchName: "Alex",
+          incomeSources: [
+            {
+              type: "bonus",
+              amountMode: "percent_of_wages",
+              percent: 10,
+              updateMode: "set",
+            },
+          ],
+        },
+      ],
+      { householdId: "hh1", contributionContext: ctx }
+    );
+    expect(resolvedWagesForMember(merged[0]!)).toBe(110000);
+  });
+
+  it("resolves employer match on base plus bonus", () => {
+    const existing = [
+      member({
+        id: "m1",
+        name: "Alex",
+        incomeSources: [
+          { id: "i1", type: "wages", amount: 100000 },
+          {
+            id: "i2",
+            type: "bonus",
+            amountMode: "fixed",
+            amount: 10000,
+          },
+        ],
+      }),
+    ];
+    const merged = mergeMemberPatches(
+      existing,
+      [
+        {
+          matchName: "Alex",
+          contributions: [
+            {
+              type: "employer_match",
+              amountMode: "percent_of_wages_and_bonus",
+              percent: 6,
+              amountExpression: "explicit",
+              updateMode: "set",
+            },
+          ],
+        },
+      ],
+      { householdId: "hh1", contributionContext: ctx }
+    );
+    const line = merged[0]!.contributions.find((c) => c.type === "employer_match");
+    expect(line?.amount).toBe(6600);
+    expect(
+      resolveMemberContributionAmount(merged[0]!, line!)
+    ).toBe(6600);
+  });
 });
 
 describe("inferMemberPatchesFromMessage", () => {
@@ -212,6 +347,37 @@ describe("inferMemberPatchesFromMessage", () => {
     expect(patches[0]?.contributions?.[0]).toMatchObject({
       type: "hsa",
       amountExpression: "max",
+    });
+  });
+
+  it("infers max DCFSA", () => {
+    const patches = inferMemberPatchesFromMessage(
+      "Max dependent care FSA",
+      [members[0]!]
+    );
+    expect(patches[0]?.contributions?.[0]).toMatchObject({
+      type: "fsa_dependent_care",
+      amountExpression: "max",
+    });
+  });
+
+  it("infers percent bonus", () => {
+    const patches = inferMemberPatchesFromMessage("Bonus is 10% of salary", [
+      members[0]!,
+    ]);
+    expect(patches[0]?.incomeSources?.[0]).toMatchObject({
+      type: "bonus",
+      amountMode: "percent_of_wages",
+      percent: 10,
+    });
+  });
+
+  it("infers add dependent", () => {
+    const patches = inferMemberPatchesFromMessage("Add kid Emma", members);
+    expect(patches[0]).toMatchObject({
+      matchName: "Emma",
+      name: "Emma",
+      relationship: "dependent",
     });
   });
 });

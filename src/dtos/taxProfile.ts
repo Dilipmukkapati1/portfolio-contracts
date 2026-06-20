@@ -9,6 +9,7 @@ import { TaxEstimateSchema, TaxYearInputSchema } from "./tax.js";
 export const ContributionLimitStatusSchema = z.object({
   type: ContributionTypeSchema,
   memberId: z.string().optional(),
+  scope: z.enum(["per_member", "household"]).default("per_member"),
   limit: z.number(),
   contributed: z.number(),
   remaining: z.number(),

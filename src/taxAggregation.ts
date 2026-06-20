@@ -5,11 +5,21 @@ import type { Member } from "./dtos/member.js";
 import type { ContributionLimitStatus, TaxProfile } from "./dtos/taxProfile.js";
 import { taxProfileDocumentId } from "./dtos/taxProfile.js";
 import type { TaxYearInput } from "./dtos/tax.js";
+import {
+  hsaCoverage,
+  statutoryLimit,
+  sumHouseholdContributions,
+  type LimitContext,
+} from "./contributionLimits.js";
+import { resolveMemberIncomeAmounts } from "./memberIncome.js";
 
 export interface TaxRuleLimits {
   retirement401kLimit?: number;
   hsaFamilyLimit?: number;
   hsaSingleLimit?: number;
+  fsaHealthLimit?: number;
+  fsaDependentCareLimit?: number;
+  fsaDependentCareLimitMfs?: number;
 }
 
 const RETIREMENT_CONTRIBUTION_TYPES: ContributionType[] = [
@@ -22,6 +32,7 @@ const RETIREMENT_CONTRIBUTION_TYPES: ContributionType[] = [
 ];
 
 const HSA_CONTRIBUTION_TYPES: ContributionType[] = ["hsa"];
+const DCFSA_CONTRIBUTION_TYPES: ContributionType[] = ["fsa_dependent_care"];
 
 const INCOME_TO_TAX_FIELD: Record<
   IncomeSourceType,
@@ -34,9 +45,11 @@ const INCOME_TO_TAX_FIELD: Record<
     | "capitalGainsShort"
     | "capitalGainsLong"
     | "otherIncome"
-  >
+  > | null
 > = {
   wages: "wages",
+  bonus: "wages",
+  cash_income: "otherIncome",
   self_employment: "selfEmploymentIncome",
   interest: "interestIncome",
   dividends: "dividendIncome",
@@ -45,12 +58,32 @@ const INCOME_TO_TAX_FIELD: Record<
   other: "otherIncome",
 };
 
+function limitContext(
+  filingStatus: FilingStatus,
+  dependentCount: number,
+  rules: TaxRuleLimits
+): LimitContext {
+  return { filingStatus, dependentCount, rules };
+}
+
 export function sumMemberIncome(members: Member[]): Partial<TaxYearInput> {
   const totals: Partial<TaxYearInput> = {};
   for (const member of members) {
     if (!member.isActive) continue;
+    const resolved = resolveMemberIncomeAmounts(member);
+    const wagesTotal = resolved.wages + resolved.bonus;
+    if (wagesTotal > 0) {
+      totals.wages = (totals.wages ?? 0) + wagesTotal;
+    }
+    if (resolved.cashIncome > 0) {
+      totals.otherIncome = (totals.otherIncome ?? 0) + resolved.cashIncome;
+    }
     for (const line of member.incomeSources) {
+      if (line.type === "wages" || line.type === "bonus" || line.type === "cash_income") {
+        continue;
+      }
       const field = INCOME_TO_TAX_FIELD[line.type];
+      if (!field) continue;
       const current = (totals[field] as number | undefined) ?? 0;
       (totals as Record<string, number>)[field] = current + line.amount;
     }
@@ -78,50 +111,49 @@ export function sumMemberContributions(members: Member[]): {
   return { retirementContributions, hsaContributions };
 }
 
-/** Pre-tax deferrals deductible on the return, capped per member at plan limits. */
+/** Pre-tax deferrals deductible on the return, capped per plan limits. */
 export function sumDeductibleMemberContributions(
   members: Member[],
-  rules: TaxRuleLimits = {}
+  rules: TaxRuleLimits = {},
+  filingStatus: FilingStatus = "single",
+  dependentCount = 0
 ): {
   retirementContributions: number;
   hsaContributions: number;
 } {
-  const retirementLimit = rules.retirement401kLimit ?? 23500;
-  const hsaLimitPerMember = rules.hsaSingleLimit ?? 4300;
-  const hsaFamilyLimit = rules.hsaFamilyLimit ?? 8550;
+  const ctx = limitContext(filingStatus, dependentCount, rules);
+  const retirementLimit = statutoryLimit("401k", ctx);
 
   let retirementContributions = 0;
-  let hsaContributions = 0;
-  let activeMemberCount = 0;
-
   for (const member of members) {
     if (!member.isActive) continue;
-    activeMemberCount += 1;
     let retirement = 0;
-    let hsa = 0;
     for (const line of member.contributions) {
       if (RETIREMENT_CONTRIBUTION_TYPES.includes(line.type)) {
         retirement += line.amount;
       }
-      if (line.type === "hsa") {
-        hsa += line.amount;
-      }
     }
     retirementContributions += Math.min(retirement, retirementLimit);
-    hsaContributions += Math.min(hsa, hsaLimitPerMember);
   }
 
-  if (activeMemberCount > 1) {
-    hsaContributions = Math.min(hsaContributions, hsaFamilyLimit);
-  }
+  const hsaTotal = sumHouseholdContributions(members, "hsa");
+  const hsaLimit = statutoryLimit("hsa", ctx);
+  const hsaContributions = Math.min(hsaTotal, hsaLimit);
 
   return { retirementContributions, hsaContributions };
 }
 
-/**
- * Normalize tax inputs before calling the estimator so pre-tax deferrals
- * always reduce AGI (works with tax-engine builds that only read `adjustments`).
- */
+export function sumDeductibleDcfsaContributions(
+  members: Member[],
+  rules: TaxRuleLimits = {},
+  filingStatus: FilingStatus = "single",
+  dependentCount = 0
+): number {
+  const ctx = limitContext(filingStatus, dependentCount, rules);
+  const total = sumHouseholdContributions(members, "fsa_dependent_care");
+  return Math.min(total, statutoryLimit("fsa_dependent_care", ctx));
+}
+
 export function prepareTaxInputForEstimate(input: TaxYearInput): TaxYearInput {
   const deferrals = input.retirementContributions + input.hsaContributions;
   if (deferrals <= 0) {
@@ -146,42 +178,88 @@ export function computeContributionLimits(
   rules: TaxRuleLimits
 ): ContributionLimitStatus[] {
   const limits: ContributionLimitStatus[] = [];
-  const retirementLimit = rules.retirement401kLimit ?? 23500;
-  const hsaLimit =
-    dependentCount > 0 || filingStatus === "married_filing_jointly"
-      ? (rules.hsaFamilyLimit ?? 8550)
-      : (rules.hsaSingleLimit ?? 4300);
+  const ctx = limitContext(filingStatus, dependentCount, rules);
+  const retirementLimit = statutoryLimit("401k", ctx);
 
   for (const member of members) {
     if (!member.isActive) continue;
     let retirementContributed = 0;
-    let hsaContributed = 0;
     for (const line of member.contributions) {
       if (RETIREMENT_CONTRIBUTION_TYPES.includes(line.type)) {
         retirementContributed += line.amount;
-      }
-      if (line.type === "hsa") {
-        hsaContributed += line.amount;
       }
     }
     if (retirementContributed > 0) {
       limits.push({
         type: "401k",
         memberId: member.id,
+        scope: "per_member",
         limit: retirementLimit,
         contributed: retirementContributed,
         remaining: Math.max(0, retirementLimit - retirementContributed),
       });
     }
-    if (hsaContributed > 0) {
+
+    const healthFsa = (member.contributions ?? [])
+      .filter((l) => l.type === "fsa_health")
+      .reduce((s, l) => s + l.amount, 0);
+    if (healthFsa > 0) {
+      const healthLimit = statutoryLimit("fsa_health", ctx);
       limits.push({
-        type: "hsa",
+        type: "fsa_health",
         memberId: member.id,
-        limit: hsaLimit,
-        contributed: hsaContributed,
-        remaining: Math.max(0, hsaLimit - hsaContributed),
+        scope: "per_member",
+        limit: healthLimit,
+        contributed: healthFsa,
+        remaining: Math.max(0, healthLimit - healthFsa),
       });
     }
+  }
+
+  const coverage = hsaCoverage(ctx);
+  const hsaTotal = sumHouseholdContributions(members, "hsa");
+  if (hsaTotal > 0 || coverage === "family") {
+    const hsaLimit = statutoryLimit("hsa", ctx);
+    if (coverage === "family") {
+      if (hsaTotal > 0) {
+        limits.push({
+          type: "hsa",
+          scope: "household",
+          limit: hsaLimit,
+          contributed: hsaTotal,
+          remaining: Math.max(0, hsaLimit - hsaTotal),
+        });
+      }
+    } else {
+      for (const member of members) {
+        if (!member.isActive) continue;
+        const hsaContributed = (member.contributions ?? [])
+          .filter((l) => l.type === "hsa")
+          .reduce((s, l) => s + l.amount, 0);
+        if (hsaContributed > 0) {
+          limits.push({
+            type: "hsa",
+            memberId: member.id,
+            scope: "per_member",
+            limit: hsaLimit,
+            contributed: hsaContributed,
+            remaining: Math.max(0, hsaLimit - hsaContributed),
+          });
+        }
+      }
+    }
+  }
+
+  const dcfsaTotal = sumHouseholdContributions(members, "fsa_dependent_care");
+  if (dcfsaTotal > 0) {
+    const dcfsaLimit = statutoryLimit("fsa_dependent_care", ctx);
+    limits.push({
+      type: "fsa_dependent_care",
+      scope: "household",
+      limit: dcfsaLimit,
+      contributed: dcfsaTotal,
+      remaining: Math.max(0, dcfsaLimit - dcfsaTotal),
+    });
   }
 
   return limits;
@@ -205,13 +283,19 @@ export function buildTaxProfileFromMembers(
   const activeMembers = members.filter((m) => m.isActive);
   const dependentCount = countDependents(members);
   const incomeTotals = sumMemberIncome(members);
-  const contributionTotals = sumDeductibleMemberContributions(members, rules);
 
   const filingStatus =
     options.filingStatus ??
     existing?.filingStatus ??
     household.filingStatus ??
     "single";
+
+  const contributionTotals = sumDeductibleMemberContributions(
+    members,
+    rules,
+    filingStatus,
+    dependentCount
+  );
 
   const inputs: TaxYearInput = {
     taxYear,
