@@ -53,11 +53,23 @@ export const AdvisorConversationSummarySchema = z.object({
 });
 export type AdvisorConversationSummary = z.infer<typeof AdvisorConversationSummarySchema>;
 
-export const AdvisorChatRequestSchema = z.object({
-  conversationId: z.string().optional(),
-  message: z.string().min(1).max(8000),
-  pageContext: AdvisorPageContextSchema.optional(),
-});
+export const AdvisorChatRequestSchema = z
+  .object({
+    conversationId: z.string().optional(),
+    message: z.string().min(1).max(8000),
+    pageContext: AdvisorPageContextSchema.optional(),
+    /** When set, replaces this user message and removes all messages after it. */
+    editMessageId: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.editMessageId && !data.conversationId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "conversationId is required when editing a message",
+        path: ["conversationId"],
+      });
+    }
+  });
 export type AdvisorChatRequest = z.infer<typeof AdvisorChatRequestSchema>;
 
 export const AdvisorChatResponseSchema = z.object({
