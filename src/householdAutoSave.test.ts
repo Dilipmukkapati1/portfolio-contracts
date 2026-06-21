@@ -405,6 +405,50 @@ describe("inferMemberPatchesFromMessage", () => {
     });
   });
 
+  it("infers fixed bonus for reshma bonus is 7k", () => {
+    const householdMembers = [
+      member({ id: "m1", name: "Dilip", relationship: "self" }),
+      member({ id: "m2", name: "Reshma", relationship: "spouse" }),
+    ];
+    const patches = inferMemberPatchesFromMessage(
+      "reshma bonus is 7k",
+      householdMembers
+    );
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({
+      matchName: "Reshma",
+      incomeSources: [
+        {
+          type: "bonus",
+          amountMode: "fixed",
+          amount: 7_000,
+        },
+      ],
+    });
+  });
+
+  it("infers fixed bonus for reshma make 7k in bonus", () => {
+    const householdMembers = [
+      member({ id: "m1", name: "Dilip", relationship: "self" }),
+      member({ id: "m2", name: "Reshma", relationship: "spouse" }),
+    ];
+    const patches = inferMemberPatchesFromMessage(
+      "reshma make 7k in bonus",
+      householdMembers
+    );
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({
+      matchName: "Reshma",
+      incomeSources: [
+        {
+          type: "bonus",
+          amountMode: "fixed",
+          amount: 7_000,
+        },
+      ],
+    });
+  });
+
   it("infers add dependent", () => {
     const patches = inferMemberPatchesFromMessage("Add kid Emma", members);
     expect(patches[0]).toMatchObject({

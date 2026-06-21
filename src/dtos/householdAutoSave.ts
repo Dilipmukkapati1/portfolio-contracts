@@ -331,10 +331,16 @@ function inferBonusFromMessage(
       updateMode: "set",
     };
   }
-  const fixedMatch = message.match(
-    /\bbonus\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?/i
-  );
-  if (fixedMatch) {
+
+  const fixedPatterns = [
+    /\bbonus\s+(?:is|was|of|=)\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?\b/i,
+    /\bbonus\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?\b/i,
+    /\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?\s+in\s+bonus\b/i,
+    /\b(?:make|makes|earn|earns|get|gets|receive|receives|has|have)\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(k|K|m|M)?\s+(?:in\s+)?bonus\b/i,
+  ];
+  for (const pattern of fixedPatterns) {
+    const fixedMatch = message.match(pattern);
+    if (!fixedMatch) continue;
     const amount = parseMoneyAmount(fixedMatch[1]!, fixedMatch[2]);
     if (amount != null) {
       return {
@@ -515,7 +521,7 @@ export function inferMemberPatchesFromMessage(
     incomeTargets.length > 0
       ? incomeTargets
       : bonus || cashIncome
-        ? contributionTargetsForMessage(message, members)
+        ? incomeTargetsForMessage(message, members)
         : [];
   for (const m of [...targetMembers, ...contributionTargets]) {
     allTargets.set(m.id, m);
