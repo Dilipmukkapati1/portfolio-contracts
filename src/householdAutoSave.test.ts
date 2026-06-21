@@ -372,6 +372,39 @@ describe("inferMemberPatchesFromMessage", () => {
     });
   });
 
+  it("infers percent bonus from dilip get 18% bonus on base salary", () => {
+    const householdMembers = [
+      member({ id: "m1", name: "Dilip", relationship: "self" }),
+      member({ id: "m2", name: "Jordan", relationship: "spouse" }),
+    ];
+    const patches = inferMemberPatchesFromMessage(
+      "dilip get 18% bonus on base salary",
+      householdMembers
+    );
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({
+      matchName: "Dilip",
+      incomeSources: [
+        {
+          type: "bonus",
+          amountMode: "percent_of_wages",
+          percent: 18,
+        },
+      ],
+    });
+  });
+
+  it("infers 18% bonus on base salary phrasing", () => {
+    const patches = inferMemberPatchesFromMessage(
+      "18% bonus on base salary",
+      [member({ id: "m1", name: "Alex", relationship: "self" })]
+    );
+    expect(patches[0]?.incomeSources?.[0]).toMatchObject({
+      type: "bonus",
+      percent: 18,
+    });
+  });
+
   it("infers add dependent", () => {
     const patches = inferMemberPatchesFromMessage("Add kid Emma", members);
     expect(patches[0]).toMatchObject({

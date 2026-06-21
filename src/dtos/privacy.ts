@@ -105,10 +105,21 @@ export const RedactedMemberSchema = MemberSchema.omit({
 });
 export type RedactedMember = z.infer<typeof RedactedMemberSchema>;
 
+export const RedactedTaxMixPercentSchema = z.object({
+  federal: z.number(),
+  socialSecurity: z.number(),
+  medicare: z.number(),
+  niit: z.number(),
+});
+export type RedactedTaxMixPercent = z.infer<typeof RedactedTaxMixPercentSchema>;
+
 export const RedactedTaxEstimateSchema = TaxEstimateSchema.pick({
   taxYear: true,
   effectiveRate: true,
   marginalRate: true,
+}).extend({
+  totalTaxRate: z.number().optional(),
+  taxMixPercent: RedactedTaxMixPercentSchema.optional(),
 });
 export type RedactedTaxEstimate = z.infer<typeof RedactedTaxEstimateSchema>;
 
