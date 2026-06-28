@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildDefaultExpensePlan,
   categoryDisplayLabel,
+  normalizeExpensePlan,
   visibleCategories,
 } from "./defaults.js";
+import { planBudgetCategories } from "./budget.js";
 
 describe("buildDefaultExpensePlan", () => {
   it("creates plan with all enum categories", () => {
@@ -28,7 +30,8 @@ describe("visibleCategories", () => {
     const plan = buildDefaultExpensePlan("hh-1");
     const visible = visibleCategories(plan.categories);
     expect(visible.every((c) => !c.hidden)).toBe(true);
-    expect(visible.length).toBeLessThan(plan.categories.length);
+    expect(visible.length).toBeGreaterThan(5);
+    expect(planBudgetCategories(plan.categories).length).toBeGreaterThan(5);
   });
 });
 

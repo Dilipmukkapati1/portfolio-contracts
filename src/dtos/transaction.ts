@@ -45,6 +45,8 @@ export const TransactionFilterSchema = z.object({
   pending: z.boolean().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  /** When true, returns settled debit outflows excluding income/transfer/investment. */
+  expenseDebitsOnly: z.boolean().optional(),
   limit: z.number().int().positive().max(500).default(100),
   cursor: z.string().optional(),
 });

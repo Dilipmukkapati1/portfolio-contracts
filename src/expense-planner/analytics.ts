@@ -1,5 +1,8 @@
 import type { TransactionCategory } from "../enums.js";
 import type { ExpenseCategoryPreference } from "../dtos/expensePlan.js";
+import type { ExpenseBudgetAllocationMode } from "../dtos/expensePlan.js";
+import { allocatedBudgetTotal } from "./budget.js";
+import { isExpenseCategory } from "./filters.js";
 
 export type DurationPreset =
   | "current-month"
@@ -18,10 +21,15 @@ export type ExpenseRedFlag = {
 };
 
 export function monthlyBudgetTotal(
-  categories: ExpenseCategoryPreference[]
+  categories: ExpenseCategoryPreference[],
+  monthlyExpenseTotal = 0,
+  mode: ExpenseBudgetAllocationMode = "dollar"
 ): number {
+  if (monthlyExpenseTotal > 0 && mode === "percent") {
+    return allocatedBudgetTotal(categories, monthlyExpenseTotal, mode);
+  }
   return categories
-    .filter((c) => !c.hidden)
+    .filter((c) => !c.hidden && isExpenseCategory(c.category))
     .reduce((sum, c) => sum + c.monthlyBudget, 0);
 }
 
