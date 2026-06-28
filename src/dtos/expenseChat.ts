@@ -101,6 +101,7 @@ export type ExpenseChatMessage = z.infer<typeof ExpenseChatMessageSchema>;
 export const ExpenseChatRequestSchema = z.object({
   message: z.string().min(1).max(8000),
   timeRange: ExpenseChatTimeRangeSchema.optional(),
+  accountId: z.string().optional(),
   history: z.array(ExpenseChatHistoryMessageSchema).max(20).optional(),
 });
 export type ExpenseChatRequest = z.infer<typeof ExpenseChatRequestSchema>;
